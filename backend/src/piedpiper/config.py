@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
-    # Redis
+    # Redis Cloud
+    # Set REDIS_URL in .env file (see .env.example)
     redis_url: str = "redis://localhost:6379"
 
     # PostgreSQL
