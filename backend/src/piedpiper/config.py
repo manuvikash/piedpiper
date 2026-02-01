@@ -6,8 +6,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
-    # Redis
-    redis_url: str = "redis://localhost:6379"
+    # Redis Cloud
+    # Default uses your Redis Cloud instance (override in .env if needed)
+    redis_url: str = "redis://default:gmdyd2O0VRi6bTfwPkiLB8laaEFAHOEb@redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166"
 
     # PostgreSQL
     database_url: str = "postgresql+asyncpg://piedpiper:piedpiper@localhost:5432/piedpiper"

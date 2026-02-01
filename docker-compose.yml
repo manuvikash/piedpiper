@@ -1,18 +1,20 @@
 services:
-  redis:
-    image: redis/redis-stack:latest
-    ports:
-      - "6379:6379"
-      - "8001:8001"  # RedisInsight UI
-    volumes:
-      - redis_data:/data
-    environment:
-      - REDIS_ARGS=--requirepass ""
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+  # Redis - OPTIONAL (using Redis Cloud instead)
+  # Uncomment if you prefer local Redis for development
+  # redis:
+  #   image: redis/redis-stack:latest
+  #   ports:
+  #     - "6379:6379"
+  #     - "8001:8001"  # RedisInsight UI
+  #   volumes:
+  #     - redis_data:/data
+  #   environment:
+  #     - REDIS_ARGS=--requirepass ""
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 5
 
   postgres:
     image: postgres:16-alpine
@@ -40,14 +42,17 @@ services:
     env_file:
       - .env
     environment:
-      - REDIS_URL=redis://redis:6379
+      # Use Redis Cloud from .env REDIS_URL
+      # Fallback to local if redis service is uncommented above
+      # - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql+asyncpg://piedpiper:piedpiper@postgres:5432/piedpiper
       - LEARNING_DATABASE_URL=postgresql+asyncpg://piedpiper:piedpiper@postgres:5432/piedpiper_learning
     depends_on:
-      redis:
-        condition: service_healthy
       postgres:
         condition: service_healthy
+      # Uncomment if using local redis:
+      # redis:
+      #   condition: service_healthy
     volumes:
       - ./backend/src:/app/src
     command: uvicorn piedpiper.main:app --host 0.0.0.0 --port 8000 --reload
@@ -67,5 +72,5 @@ services:
     command: npm run dev
 
 volumes:
-  redis_data:
+  # redis_data:  # Uncomment if using local redis
   postgres_data:
