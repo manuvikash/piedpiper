@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 from redis.commands.search.field import TagField, TextField, VectorField
-from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+from redis.commands.search.index_definition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class HybridKnowledgeBase:
                     "FLAT",
                     {
                         "TYPE": "FLOAT32",
-                        "DIM": self.embedding_service.EMBEDDING_DIMENSIONS,
+                        "DIM": self.embedding_service.embedding_dimensions,
                         "DISTANCE_METRIC": "COSINE",
                     },
                     as_name="question_vector",
@@ -65,7 +65,7 @@ class HybridKnowledgeBase:
                     "FLAT",
                     {
                         "TYPE": "FLOAT32",
-                        "DIM": self.embedding_service.EMBEDDING_DIMENSIONS,
+                        "DIM": self.embedding_service.embedding_dimensions,
                         "DISTANCE_METRIC": "COSINE",
                     },
                     as_name="answer_vector",

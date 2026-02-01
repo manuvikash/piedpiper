@@ -66,7 +66,7 @@ The Redis implementation provides:
 
 ### 1. Embedding Service (`infra/embeddings.py`)
 
-Generates text embeddings using OpenAI's `text-embedding-3-small` model.
+Generates text embeddings using local sentence-transformers (`all-MiniLM-L6-v2`).
 
 **Features:**
 - 1536-dimensional embeddings
@@ -78,7 +78,7 @@ Generates text embeddings using OpenAI's `text-embedding-3-small` model.
 ```python
 from piedpiper.infra.embeddings import EmbeddingService
 
-service = EmbeddingService(openai_api_key="...", redis_client=redis)
+service = EmbeddingService(model_name="all-MiniLM-L6-v2", redis_client=redis)
 embedding = await service.embed("How do I authenticate?")
 ```
 
@@ -241,7 +241,7 @@ Costs are tracked in `state.costs.spent_embeddings`.
 ## Environment Variables
 
 Required:
-- `OPENAI_API_KEY` - OpenAI API key for embeddings
+- `EMBEDDING_MODEL` - Local embedding model (default: all-MiniLM-L6-v2, no API key needed)
 - `REDIS_URL` - Redis Cloud connection URL
 
 ### Redis Cloud Setup
@@ -306,7 +306,7 @@ Run the integration test:
 
 ```bash
 # Set environment variables
-export OPENAI_API_KEY="sk-..."
+# No API key needed for embeddings (runs locally)
 export REDIS_URL="redis://default:password@redis-xxxxx.c123.region.cloud.redislabs.com:12345"
 
 # Run test

@@ -8,7 +8,7 @@ AI-powered focus group simulation with 3 worker agents, expert assistance, and i
 
 - Python 3.11+
 - Node.js 18+
-- OpenAI API key
+- W&B API key (for LLM calls via W&B Inference)
 - Redis Cloud account (free tier works!)
 
 ### 2. Redis Cloud Setup
@@ -34,7 +34,7 @@ nano .env
 
 **Required variables:**
 ```bash
-OPENAI_API_KEY=sk-...
+WANDB_API_KEY=your-wandb-api-key
 REDIS_URL=redis://default:password@redis-xxxxx.c123.region.cloud.redislabs.com:12345
 ```
 
@@ -78,11 +78,11 @@ Worker Agents (3) → Get Stuck → Arbiter → Redis Cache Search
 ```
 
 **Key Features:**
-- 🤖 **3 AI Workers** - Junior, Intermediate, Senior personas
-- 🧠 **Intelligent Caching** - Vector + keyword hybrid search
-- 👤 **Human-in-the-Loop** - Approve answers before caching
-- 📊 **Cost Tracking** - Monitor LLM and embedding costs
-- 🔄 **Self-Improving Expert** - Learns from effectiveness
+- 3 AI Workers - Junior, Intermediate, Senior personas
+- Intelligent Caching - Vector + keyword hybrid search
+- Human-in-the-Loop - Approve answers before caching
+- Cost Tracking - Monitor LLM costs
+- Self-Improving Expert - Learns from effectiveness
 
 ## Technology Stack
 
@@ -91,9 +91,10 @@ Worker Agents (3) → Get Stuck → Arbiter → Redis Cache Search
 | Workflow | LangGraph |
 | Backend | FastAPI |
 | Frontend | Next.js + React |
+| LLM Provider | W&B Inference (OpenAI-compatible API) |
+| LLM Models | DeepSeek R1/V3, Llama 3.x, Qwen, Phi-4 |
+| Embeddings | sentence-transformers (local, zero cost) |
 | Vector DB | Redis Cloud (Stack) |
-| Embeddings | OpenAI text-embedding-3-small |
-| LLMs | GPT-4, Claude 3.5 Sonnet |
 | Sandboxes | Daytona |
 | Browser Testing | Browserbase |
 | Monitoring | W&B Weave |
@@ -102,21 +103,21 @@ Worker Agents (3) → Get Stuck → Arbiter → Redis Cache Search
 
 - [Redis Implementation](docs/redis-implementation.md) - Caching architecture
 - [Redis Cloud Setup](docs/redis-cloud-setup.md) - Step-by-step setup guide
-- [Architecture Plan](plan.md) - Full system design
+- [Architecture Plan](PLAN.md) - Full system design
 
 ## Testing
 
 ### Test Redis Integration
 
 ```bash
-export OPENAI_API_KEY="sk-..."
 export REDIS_URL="redis://default:password@host:port"
 python backend/tests/test_redis_integration.py
 ```
 
 Expected:
 ```
-✓ Redis Cloud connected
+✓ Redis connected
+✓ Embedding service initialized (sentence-transformers)
 ✓ Indices created
 ✓ Hybrid search working
 ✓ All tests passed!
@@ -135,39 +136,10 @@ piedpiper/
 │   │   └── main.py          # App entry point
 │   └── tests/               # Integration tests
 ├── frontend/
-│   └── src/                 # Next.js app
+│   └── app/                 # Next.js app
 ├── docs/                    # Documentation
-├── plan.md                  # Architecture specification
+├── PLAN.md                  # Architecture specification
 └── .env.example             # Environment template
-```
-
-## Development
-
-### Backend Development
-
-```bash
-cd backend
-
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run with hot reload
-uvicorn piedpiper.main:app --reload --log-level debug
-
-# Run tests
-pytest
-```
-
-### Frontend Development
-
-```bash
-cd frontend
-
-# Run dev server
-npm run dev
-
-# Build for production
-npm run build
 ```
 
 ## Environment Variables
@@ -175,40 +147,36 @@ npm run build
 See `.env.example` for all available configuration options.
 
 **Essential:**
-- `OPENAI_API_KEY` - OpenAI API key
+- `WANDB_API_KEY` - W&B Inference API key (all LLM calls)
 - `REDIS_URL` - Redis Cloud connection URL
-- `ANTHROPIC_API_KEY` - Anthropic API key (for Claude)
 
 **Optional:**
 - `DATABASE_URL` - PostgreSQL connection (for long-term storage)
 - `DAYTONA_API_KEY` - Daytona API key (for sandboxes)
 - `BROWSERBASE_API_KEY` - Browserbase API key (for testing)
-- `WANDB_API_KEY` - Weights & Biases API key (for monitoring)
+- `EMBEDDING_MODEL` - Local embedding model (default: all-MiniLM-L6-v2)
 
 ## Redis Cloud Benefits
 
 **Why Redis Cloud over Docker?**
-- ✅ No local infrastructure needed
-- ✅ Always available (cloud-hosted)
-- ✅ Free tier with Redis Stack (vector search)
-- ✅ Automatic backups
-- ✅ SSL/TLS support
-- ✅ Global availability
+- No local infrastructure needed
+- Always available (cloud-hosted)
+- Free tier with Redis Stack (vector search)
+- Automatic backups
+- SSL/TLS support
 
 **Free Tier Limits:**
 - 30MB storage (~2,000 cached Q&A pairs)
 - Redis Stack features included
 - 30 concurrent connections
-- Unlimited bandwidth
 
 ## Cost Estimates
 
 | Component | Cost |
 |-----------|------|
 | Redis Cloud | Free (30MB tier) |
-| OpenAI Embeddings | ~$0.000002 per text |
-| OpenAI GPT-4 | ~$0.03 per 1K tokens |
-| Anthropic Claude | ~$0.015 per 1K tokens |
+| Embeddings | $0.00 (local sentence-transformers) |
+| W&B Inference LLMs | ~$0.20-$1.50 per 1M tokens |
 | **Total per session** | ~$0.10 - $2.00 |
 
 Budget controls enforced at $50/session.
@@ -229,7 +197,7 @@ Budget controls enforced at $50/session.
 
 ## Contributing
 
-See `plan.md` for the complete architecture and implementation plan.
+See `PLAN.md` for the complete architecture and implementation plan.
 
 ## License
 

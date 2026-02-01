@@ -71,7 +71,6 @@ REDIS_URL=redis://default:AbCdEf123456@redis-15166.c258.us-east-1-4.ec2.cloud.re
 
 ```bash
 # Set environment variables
-export OPENAI_API_KEY="sk-..."
 export REDIS_URL="redis://default:YOUR_PASSWORD@redis-xxxxx.c123.region.cloud.redislabs.com:12345"
 
 # Run test

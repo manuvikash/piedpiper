@@ -133,7 +133,16 @@ def _route_after_progress_check(state: FocusGroupState) -> str:
 
 def _route_after_search(state: FocusGroupState) -> str:
     """Route based on cache hit/miss."""
-    # For now, always return cache miss (no Redis implementation yet)
+    if not state.expert_queries:
+        return "cache_miss"
+    
+    current_query = state.expert_queries[-1]
+    if isinstance(current_query, dict) and current_query.get("cache_hit"):
+        # Check if the cache result is good enough (relevance > 0.7)
+        results = current_query.get("cache_results", [])
+        if results and results[0].get("relevance_score", 0) > 0.7:
+            return "cache_hit"
+    
     return "cache_miss"
 
 

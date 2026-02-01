@@ -24,6 +24,34 @@ AI Focus Group Simulation with 3 worker agents testing SDK/API products in Dayto
 - [x] W&B Weave tracing setup
 - [x] Requirements.txt with all dependencies
 
+### Phase 1 MVP ✅ (Completed Jan 31, 2026)
+- [x] `WorkerAgent.execute_subtask` - LLM calls + Daytona sandbox execution
+- [x] `WorkerAgent.apply_expert_answer` - inject expert guidance
+- [x] `init_node` - creates 3 workers with sandboxes
+- [x] `assign_task_node` - assigns task to all workers
+- [x] `worker_execute_node` - orchestrates worker execution
+- [x] `check_progress_node` - evaluates stuck/progress
+- [x] `_route_after_progress_check` routing function
+- [x] `POST /api/sessions` - create and run session
+- [x] `GET /api/sessions/{id}` - get session status
+- [x] `GET /api/sessions/{id}/costs` - get cost breakdown
+- [x] `GET /api/sessions/{id}/stream` - SSE for real-time events
+- [x] Fixed pyproject.toml build-backend (hatchling.build)
+- [x] Fixed session API to handle both dict and Pydantic models
+
+### Phase 2 Escalation Flow ✅ (Completed Jan 31, 2026)
+- [x] `ArbiterAgent.build_query` - summarize worker context into ExpertQuery
+- [x] `ArbiterAgent._detect_dead_end` - dead-end pattern detection
+- [x] `ArbiterAgent._classify_issue` - full issue classification
+- [x] `ExpertLearningModule` - in-memory implementation (track, evaluate, patterns)
+- [x] `ExpertAgent.answer` - LLM call with learned context
+- [x] `arbiter_node` - evaluates stuck workers, builds queries
+- [x] `hybrid_search_node` - searches Redis cache (already implemented)
+- [x] `human_review_node` - auto-approve for MVP (async wait ready)
+- [x] `expert_answer_node` - calls expert, caches answer, applies to worker
+- [x] `_route_after_search` - routes based on cache hit/miss with relevance threshold
+- [x] `HumanReviewQueue.wait_for_decision` - async wait mechanism
+
 ---
 
 ## 🔴 PHASE 1: MVP - Core Execution (Priority: CRITICAL)

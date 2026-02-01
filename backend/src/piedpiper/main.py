@@ -36,31 +36,31 @@ async def lifespan(app: FastAPI):
         )
         await app_state.redis.ping()
         logger.info(f"✓ Redis connected: {settings.redis_url}")
-    except Exception as e:
-        logger.error(f"Failed to connect to Redis: {e}")
-        raise
 
-    # Initialize embedding service
-    logger.info("Initializing embedding service...")
-    app_state.embedding_service = EmbeddingService(
-        openai_api_key=settings.openai_api_key,
-        redis_client=app_state.redis,
-    )
-    logger.info("✓ Embedding service initialized")
+        # Initialize embedding service (local sentence-transformers, no API key needed)
+        logger.info("Initializing embedding service...")
+        app_state.embedding_service = EmbeddingService(
+            model_name=settings.embedding_model,
+            redis_client=app_state.redis,
+        )
+        logger.info(f"✓ Embedding service initialized (model: {settings.embedding_model})")
 
-    # Initialize hybrid knowledge base
-    logger.info("Initializing hybrid knowledge base...")
-    app_state.knowledge_base = HybridKnowledgeBase(
-        redis_client=app_state.redis,
-        embedding_service=app_state.embedding_service,
-    )
-    
-    # Create search indices
-    try:
-        await app_state.knowledge_base.initialize_indices()
-        logger.info("✓ Redis search indices created")
+        # Initialize hybrid knowledge base
+        logger.info("Initializing hybrid knowledge base...")
+        app_state.knowledge_base = HybridKnowledgeBase(
+            redis_client=app_state.redis,
+            embedding_service=app_state.embedding_service,
+        )
+
+        # Create search indices
+        try:
+            await app_state.knowledge_base.initialize_indices()
+            logger.info("✓ Redis search indices created")
+        except Exception as e:
+            logger.warning(f"Failed to create search indices (may already exist): {e}")
     except Exception as e:
-        logger.warning(f"Failed to create search indices (may already exist): {e}")
+        logger.warning(f"Redis unavailable, running without cache/search: {e}")
+        app_state.redis = None
     
     # TODO: init Postgres, Weave
     

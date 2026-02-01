@@ -2,14 +2,14 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # LLM Providers - W&B Inference (OpenAI-compatible API)
+    # W&B Inference (OpenAI-compatible API for all LLM calls)
     wandb_api_key: str = ""
     wandb_base_url: str = "https://api.inference.wandb.ai/v1"
     wandb_project: str = "focus-group-simulation"
 
-    # Legacy API keys (for fallback)
-    anthropic_api_key: str = ""
-    openai_api_key: str = ""
+    # Embeddings (local sentence-transformers, no external API needed)
+    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_dimensions: int = 384
 
     # Redis Cloud
     # Set REDIS_URL in .env file (see .env.example)
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ["../.env", ".env"], "env_file_encoding": "utf-8"}
 
 
 settings = Settings()

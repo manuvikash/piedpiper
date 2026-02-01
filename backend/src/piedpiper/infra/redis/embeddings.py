@@ -2,7 +2,8 @@
 
 Owner: Person 3 (Infrastructure)
 
-Handles text embedding generation using OpenAI's API.
+Handles text embedding generation using local sentence-transformers.
+No external API calls needed - runs entirely on-device.
 """
 
 from __future__ import annotations
@@ -10,24 +11,51 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
-from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
+def _load_model(model_name: str):
+    """Load sentence-transformers model (cached singleton)."""
+    from sentence_transformers import SentenceTransformer
+
+    logger.info(f"Loading embedding model: {model_name}")
+    return SentenceTransformer(model_name)
+
+
 class EmbeddingService:
-    """Manages text embeddings with caching."""
+    """Manages text embeddings using local sentence-transformers with Redis caching.
 
-    EMBEDDING_MODEL = "text-embedding-3-small"  # 1536 dimensions, cost-effective
-    EMBEDDING_DIMENSIONS = 1536
+    Uses all-MiniLM-L6-v2 by default (384 dimensions, fast, good quality).
+    No API keys required - runs locally.
+    """
 
-    def __init__(self, openai_api_key: str, redis_client: Any | None = None):
-        self.client = AsyncOpenAI(api_key=openai_api_key)
+    def __init__(
+        self,
+        model_name: str = "all-MiniLM-L6-v2",
+        redis_client: Any | None = None,
+    ):
+        self.model_name = model_name
         self.redis = redis_client
         self._cache_prefix = "embedding:"
+        self._model = None
+
+    @property
+    def embedding_dimensions(self) -> int:
+        """Return the embedding dimensions for the current model."""
+        model = self._get_model()
+        return model.get_sentence_embedding_dimension()
+
+    def _get_model(self):
+        """Lazy-load the sentence-transformers model."""
+        if self._model is None:
+            self._model = _load_model(self.model_name)
+        return self._model
 
     async def embed(self, text: str) -> np.ndarray:
         """Generate embedding for text with Redis caching.
@@ -36,7 +64,7 @@ class EmbeddingService:
             text: Text to embed
 
         Returns:
-            numpy array of shape (1536,)
+            numpy array of shape (embedding_dimensions,)
         """
         if not text or not text.strip():
             raise ValueError("Cannot embed empty text")
@@ -49,13 +77,10 @@ class EmbeddingService:
                 logger.debug(f"Embedding cache hit for: {text[:50]}...")
                 return cached
 
-        # Generate embedding
+        # Generate embedding locally
         logger.debug(f"Generating embedding for: {text[:50]}...")
-        response = await self.client.embeddings.create(
-            model=self.EMBEDDING_MODEL, input=text, encoding_format="float"
-        )
-
-        embedding = np.array(response.data[0].embedding, dtype=np.float32)
+        model = self._get_model()
+        embedding = model.encode(text, convert_to_numpy=True).astype(np.float32)
 
         # Cache the result
         if self.redis:
@@ -65,6 +90,8 @@ class EmbeddingService:
 
     async def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
         """Generate embeddings for multiple texts efficiently.
+
+        Sentence-transformers batches internally for GPU/CPU efficiency.
 
         Args:
             texts: List of texts to embed
@@ -95,17 +122,15 @@ class EmbeddingService:
         else:
             texts_to_generate = valid_texts
 
-        # Generate embeddings for uncached texts
+        # Generate embeddings for uncached texts in a single batch
         if texts_to_generate:
             logger.debug(f"Generating {len(texts_to_generate)} embeddings in batch")
-            response = await self.client.embeddings.create(
-                model=self.EMBEDDING_MODEL,
-                input=[text for _, text in texts_to_generate],
-                encoding_format="float",
-            )
+            model = self._get_model()
+            batch_texts = [text for _, text in texts_to_generate]
+            batch_embeddings = model.encode(batch_texts, convert_to_numpy=True).astype(np.float32)
 
             for i, (original_idx, text) in enumerate(texts_to_generate):
-                embedding = np.array(response.data[i].embedding, dtype=np.float32)
+                embedding = batch_embeddings[i]
                 embeddings[original_idx] = embedding
 
                 # Cache the result
@@ -118,7 +143,7 @@ class EmbeddingService:
     def _get_cache_key(self, text: str) -> str:
         """Generate cache key for text."""
         text_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
-        return f"{self._cache_prefix}{self.EMBEDDING_MODEL}:{text_hash}"
+        return f"{self._cache_prefix}{self.model_name}:{text_hash}"
 
     async def _get_cached_embedding(self, cache_key: str) -> np.ndarray | None:
         """Retrieve cached embedding from Redis."""
@@ -134,7 +159,6 @@ class EmbeddingService:
     async def _cache_embedding(self, cache_key: str, embedding: np.ndarray):
         """Cache embedding in Redis with 7-day TTL."""
         try:
-            # Store as JSON list for readability
             embedding_json = json.dumps(embedding.tolist())
             await self.redis.setex(cache_key, 604800, embedding_json)  # 7 days
         except Exception as e:
@@ -143,21 +167,13 @@ class EmbeddingService:
     def get_cost_per_embedding(self) -> float:
         """Get cost per embedding in USD.
 
-        text-embedding-3-small costs $0.02 / 1M tokens
-        Average text is ~100 tokens, so ~$0.000002 per embedding
+        Local sentence-transformers: $0 (runs on device).
         """
-        return 0.000002
+        return 0.0
 
     def get_cost_for_batch(self, num_texts: int, avg_tokens_per_text: int = 100) -> float:
         """Estimate cost for batch embedding.
 
-        Args:
-            num_texts: Number of texts to embed
-            avg_tokens_per_text: Average tokens per text (default 100)
-
-        Returns:
-            Estimated cost in USD
+        Returns 0.0 since sentence-transformers runs locally.
         """
-        total_tokens = num_texts * avg_tokens_per_text
-        cost_per_million = 0.02
-        return (total_tokens / 1_000_000) * cost_per_million
+        return 0.0

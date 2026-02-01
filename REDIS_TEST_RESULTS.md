@@ -155,10 +155,9 @@ Worker stuck → Arbiter → Redis Search → Cache Miss → Expert Agent
 
 ## Next Steps
 
-### Option 1: Test with Real Embeddings (Requires OpenAI API Key)
+### Option 1: Test with Real Embeddings (Local sentence-transformers)
 
 ```bash
-export OPENAI_API_KEY="sk-..."
 python backend/tests/test_redis_integration.py
 ```
 

@@ -1,4 +1,4 @@
-"""Test Redis Cloud integration without OpenAI embeddings.
+"""Test Redis Cloud integration with mock embeddings.
 
 This test verifies:
 1. Redis Cloud connection
@@ -89,8 +89,8 @@ async def test_redis_cloud_full():
         # 4. Test vector operations (mock embeddings)
         logger.info("4️⃣  Testing vector storage...")
         
-        # Create mock embeddings (1536 dimensions like OpenAI)
-        mock_embedding = np.random.rand(1536).astype(np.float32)
+        # Create mock embeddings (384 dimensions like all-MiniLM-L6-v2)
+        mock_embedding = np.random.rand(384).astype(np.float32)
         
         vector_doc = {
             "id": "vec_test_456",
@@ -108,7 +108,7 @@ async def test_redis_cloud_full():
         logger.info("   ✅ Vector document stored")
         
         retrieved_vec = await redis.json().get(vec_key)
-        assert len(retrieved_vec["question_embedding"]) == 1536
+        assert len(retrieved_vec["question_embedding"]) == 384
         logger.info(f"   ✅ Vector retrieved (dim: {len(retrieved_vec['question_embedding'])})\n")
         
         # 5. Test search index creation
@@ -128,7 +128,7 @@ async def test_redis_cloud_full():
                 "FLAT",
                 {
                     "TYPE": "FLOAT32",
-                    "DIM": 1536,
+                    "DIM": 384,
                     "DISTANCE_METRIC": "COSINE",
                 },
                 as_name="question_vector",
@@ -186,7 +186,7 @@ async def test_redis_cloud_full():
         logger.info("7️⃣  Testing vector similarity search...")
         
         # Create mock query vector
-        query_vector = np.random.rand(1536).astype(np.float32)
+        query_vector = np.random.rand(384).astype(np.float32)
         query_bytes = query_vector.tobytes()
         
         vector_query = (
@@ -226,11 +226,11 @@ async def test_redis_cloud_full():
         logger.info("=" * 70)
         logger.info("Redis Cloud is fully configured and ready for:")
         logger.info("  ✅ JSON document storage")
-        logger.info("  ✅ Vector embeddings (1536 dimensions)")
+        logger.info("  ✅ Vector embeddings (384 dimensions)")
         logger.info("  ✅ Hybrid search (keyword + vector)")
         logger.info("  ✅ Index creation and management")
         logger.info("")
-        logger.info("Next: Add OPENAI_API_KEY to test with real embeddings")
+        logger.info("Next: Run test_redis_integration.py to test with real embeddings (local sentence-transformers)")
         logger.info("=" * 70)
         
         return True

@@ -76,7 +76,7 @@ class CostController:
     def get_cost_saving_recommendation(self) -> str:
         """Suggest cost-saving measures based on current spend."""
         if self.tracker.spent_expert > self.budget.expert_cost_limit * 0.8:
-            return "Switch workers to cheaper models (gpt-4o-mini)"
+            return "Switch workers to cheaper models (microsoft/Phi-4-mini-instruct)"
         if self.tracker.spent_workers > self.budget.worker_cost_limit * 0.7:
             return "Reduce arbiter sensitivity to decrease escalations"
         return "No action needed"

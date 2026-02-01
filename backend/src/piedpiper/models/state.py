@@ -13,22 +13,15 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class WorkerExpertise(str, enum.Enum):
-    BEGINNER = "beginner"
-    MID_LEVEL = "mid-level"
-    ADVANCED = "advanced"
-
-
 class WorkerConfig(BaseModel):
     id: str
     model: str
-    expertise: WorkerExpertise
 
 
 DEFAULT_WORKERS = [
-    WorkerConfig(id="junior", model="microsoft/Phi-4-mini-instruct", expertise=WorkerExpertise.BEGINNER),
-    WorkerConfig(id="intermediate", model="meta-llama/Llama-3.1-8B-Instruct", expertise=WorkerExpertise.MID_LEVEL),
-    WorkerConfig(id="senior", model="Qwen/Qwen2.5-14B-Instruct", expertise=WorkerExpertise.ADVANCED),
+    WorkerConfig(id="worker-1", model="Qwen/Qwen2.5-14B-Instruct"),
+    WorkerConfig(id="worker-2", model="Qwen/Qwen2.5-14B-Instruct"),
+    WorkerConfig(id="worker-3", model="Qwen/Qwen2.5-14B-Instruct"),
 ]
 
 

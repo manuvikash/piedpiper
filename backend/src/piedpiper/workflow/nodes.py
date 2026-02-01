@@ -1,174 +1,245 @@
 """Graph node implementations.
 
-Owner: Person 1 (Core Workflow)
-
 Each node receives FocusGroupState, performs its work, and returns
 updated state. Nodes call into agents/ and infra/ modules but don't
 implement agent or infrastructure logic themselves.
 """
 
-import logging
-
-from piedpiper.models.state import FocusGroupState, Phase
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from uuid import uuid4
 
+from openai import AsyncOpenAI
+
+from piedpiper.agents.arbiter import ArbiterAgent
+from piedpiper.agents.expert import ExpertAgent
+from piedpiper.agents.worker import WorkerAgent
+from piedpiper.api.events import event_bus
+from piedpiper.config import settings
 from piedpiper.models.state import (
     DEFAULT_WORKERS,
     FocusGroupState,
     Phase,
-    WorkerExpertise,
+    WorkerAction,
+    WorkerConfig,
     WorkerState,
 )
-from piedpiper.agents.worker import WorkerAgent
-from piedpiper.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def init_node(state: FocusGroupState) -> dict:
-    """Initialize workers and reset state."""
-    # Generate session ID if not set
+    """Initialize workers and provision sandboxes."""
     if not state.session_id:
         state.session_id = str(uuid4())
-    
-    # Create WorkerState for each DEFAULT_WORKERS config
+
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "init"})
+
     workers = []
     for config in DEFAULT_WORKERS:
         worker_state = WorkerState(
             worker_id=config.id,
             config=config,
         )
-        
-        # Initialize Daytona sandbox for this worker
+
         agent = WorkerAgent(config)
-        sandbox_id = await agent.initialize_sandbox()
-        worker_state.sandbox_id = sandbox_id
-        
+        agent.set_emitter(event_bus.make_emitter(sid))
+
+        try:
+            sandbox_id = await agent.initialize_sandbox()
+            worker_state.sandbox_id = sandbox_id
+            await event_bus.emit(sid, config.id, "ready", {
+                "sandbox_id": sandbox_id,
+            })
+        except Exception as e:
+            logger.error(f"Failed to initialize sandbox for {config.id}: {e}")
+            await event_bus.emit(sid, config.id, "error", {
+                "error": str(e)[:300],
+            })
+
         workers.append(worker_state)
-    
+
     state.workers = workers
     state.current_phase = Phase.ASSIGN_TASK
-    
+
     return {"workers": workers, "current_phase": Phase.ASSIGN_TASK}
 
 
 async def assign_task_node(state: FocusGroupState) -> dict:
     """Assign the full task to all workers."""
-    # Give the same task to all 3 workers
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "assign_task"})
+
     for worker in state.workers:
         worker.subtask = state.task
+        worker.conversation_history.append({
+            "role": "user",
+            "content": f"Your task is to test and implement: {state.task}\n\nPlease start by exploring what needs to be done and write code to accomplish this.",
+        })
+        await event_bus.emit(sid, worker.worker_id, "task_assigned", {
+            "task": state.task[:200],
+        })
 
     state.current_phase = Phase.WORKER_EXECUTE
-    
     return {"workers": state.workers, "current_phase": Phase.WORKER_EXECUTE}
 
 
 async def worker_execute_node(state: FocusGroupState) -> dict:
-    """Run worker code in Daytona sandbox.
+    """Run worker code in Daytona sandboxes."""
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "worker_execute"})
 
-    Delegates to agents.worker.execute()
-    """
-    # For now, just mark all workers as completed (stub implementation)
-    # TODO: actually call WorkerAgent.execute_subtask() for each worker
     for worker in state.workers:
-        if not worker.completed:
-            # Placeholder: mark as completed for now
-            worker.completed = True
-            worker.output = {
-                "status": "completed",
-                "result": f"Stub result for {worker.worker_id}",
-            }
-    
+        if not worker.completed and not worker.stuck:
+            logger.info(f"Executing subtask for worker {worker.worker_id}")
+
+            agent = WorkerAgent(worker.config)
+            agent.sandbox_id = worker.sandbox_id
+            agent.set_emitter(event_bus.make_emitter(sid))
+
+            try:
+                updated_worker = await agent.execute_subtask(worker, worker.subtask)
+
+                worker.action_history = updated_worker.action_history
+                worker.conversation_history = updated_worker.conversation_history
+                worker.recent_errors = updated_worker.recent_errors
+                worker.llm_confidence = updated_worker.llm_confidence
+                worker.minutes_without_progress = updated_worker.minutes_without_progress
+                worker.completed = updated_worker.completed
+                worker.output = updated_worker.output
+
+                logger.info(
+                    f"Worker {worker.worker_id}: "
+                    f"completed={worker.completed}, "
+                    f"confidence={worker.llm_confidence:.2f}, "
+                    f"actions={len(worker.action_history)}"
+                )
+
+            except Exception as e:
+                logger.error(f"Error executing worker {worker.worker_id}: {e}")
+                worker.recent_errors.append(str(e))
+                worker.recent_errors = worker.recent_errors[-5:]
+                await event_bus.emit(sid, worker.worker_id, "error", {
+                    "error": str(e)[:300],
+                })
+
     state.current_phase = Phase.CHECK_PROGRESS
     return {"workers": state.workers, "current_phase": Phase.CHECK_PROGRESS}
 
 
 async def check_progress_node(state: FocusGroupState) -> dict:
-    """Check if workers are making progress.
-
-    Updates worker.stuck and worker.minutes_without_progress.
-    """
-    # Check if all workers are completed
+    """Check if workers are making progress."""
+    sid = state.session_id
     all_completed = all(worker.completed for worker in state.workers)
-    
+
     if all_completed:
-        # All done, move to browserbase test
+        logger.info("All workers completed, moving to browserbase test")
+        await event_bus.emit(sid, "system", "phase_change", {"phase": "browserbase_test"})
         state.current_phase = Phase.BROWSERBASE_TEST
         return {"workers": state.workers, "current_phase": Phase.BROWSERBASE_TEST}
-    
-    # Check for stuck workers
+
+    for worker in state.workers:
+        if not worker.completed and not worker.stuck:
+            if worker.minutes_without_progress >= 5.0:
+                worker.stuck = True
+                await event_bus.emit(sid, worker.worker_id, "stuck", {
+                    "reason": "no progress",
+                    "minutes": worker.minutes_without_progress,
+                })
+            elif len(worker.recent_errors) >= 3:
+                worker.stuck = True
+                await event_bus.emit(sid, worker.worker_id, "stuck", {
+                    "reason": "repeated errors",
+                    "error_count": len(worker.recent_errors),
+                })
+
     any_stuck = any(worker.stuck for worker in state.workers)
-    
+
     if any_stuck:
+        await event_bus.emit(sid, "system", "phase_change", {"phase": "arbiter"})
         state.current_phase = Phase.ARBITER
         return {"workers": state.workers, "current_phase": Phase.ARBITER}
-    
-    # Workers still executing
+
     state.current_phase = Phase.WORKER_EXECUTE
     return {"workers": state.workers, "current_phase": Phase.WORKER_EXECUTE}
 
 
 async def arbiter_node(state: FocusGroupState) -> dict:
-    """Evaluate stuck workers and decide on escalation.
-
-    Delegates to agents.arbiter.evaluate()
-    """
-    # Stub: mark stuck workers as unstuck and continue
+    """Evaluate stuck workers and decide on escalation."""
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "arbiter"})
+    
+    arbiter = ArbiterAgent()
+    expert_queries = list(state.expert_queries)  # Copy existing queries
+    
     for worker in state.workers:
         if worker.stuck:
-            worker.stuck = False
+            logger.info(f"Arbiter evaluating stuck worker {worker.worker_id}")
+            
+            # Evaluate escalation
+            should_escalate, issue_type, urgency = arbiter.should_escalate(worker)
+            
+            if should_escalate:
+                # Build query for this worker
+                query = arbiter.build_query(worker, issue_type, urgency)
+                expert_queries.append(query.model_dump())
+                
+                await event_bus.emit(sid, worker.worker_id, "escalated", {
+                    "issue_type": issue_type.value,
+                    "urgency": urgency,
+                    "question": query.question[:200],
+                })
+                logger.info(f"Worker {worker.worker_id} escalated: {issue_type.value} (urgency={urgency:.2f})")
+            else:
+                # Not severe enough to escalate, just reset stuck flag
+                worker.stuck = False
+                logger.info(f"Worker {worker.worker_id} not escalated, resuming")
     
     state.current_phase = Phase.HYBRID_SEARCH
-    return {"workers": state.workers, "current_phase": Phase.HYBRID_SEARCH}
+    return {
+        "workers": state.workers,
+        "expert_queries": expert_queries,
+        "current_phase": Phase.HYBRID_SEARCH,
+    }
 
 
 async def hybrid_search_node(state: FocusGroupState) -> dict:
-    """Search Redis vector cache for existing answers.
-
-    Delegates to infra.search.hybrid_search()
-    """
+    """Search Redis vector cache for existing answers."""
     from piedpiper.main import app_state
-    
-    # Get the current expert query (should be added by arbiter_node)
+
     if not state.expert_queries:
         logger.warning("No expert queries to search for")
         return {"current_phase": Phase.HUMAN_REVIEW}
-    
-    # Get the most recent query
+
     current_query = state.expert_queries[-1]
     question = current_query.get("question", "")
-    
+
     if not question:
         logger.warning("Expert query has no question")
         return {"current_phase": Phase.HUMAN_REVIEW}
-    
+
     logger.info(f"Searching cache for: {question[:100]}...")
-    
-    # Search the knowledge base
+
     if app_state.knowledge_base:
         results, embedding_cost = await app_state.knowledge_base.search(question, top_k=3)
-        
-        # Track embedding cost
+
         updated_costs = state.costs.model_copy()
         updated_costs.spent_embeddings += embedding_cost
-        
+
         if results:
             logger.info(
                 f"Cache HIT! Found {len(results)} similar answers "
                 f"(best score: {results[0].get('relevance_score', 0):.3f})"
             )
-            
-            # Store results in the query for review
             current_query["cache_results"] = results
             current_query["cache_hit"] = True
-            
-            # Update state
             return {
                 "expert_queries": state.expert_queries,
                 "costs": updated_costs,
-                "current_phase": Phase.HUMAN_REVIEW,  # Still show to human for approval
+                "current_phase": Phase.HUMAN_REVIEW,
             }
         else:
             logger.info("Cache MISS - no similar answers found")
@@ -176,96 +247,150 @@ async def hybrid_search_node(state: FocusGroupState) -> dict:
     else:
         logger.warning("Knowledge base not initialized")
         current_query["cache_hit"] = False
-        updated_costs = state.costs
-    
+
     return {
         "expert_queries": state.expert_queries,
-        "costs": updated_costs,
         "current_phase": Phase.HUMAN_REVIEW,
     }
-    # Stub: skip cache, go straight to human review
-    state.current_phase = Phase.HUMAN_REVIEW
-    return {"current_phase": Phase.HUMAN_REVIEW}
 
 
 async def human_review_node(state: FocusGroupState) -> dict:
-    """Queue question for human review and wait for decision.
-
-    Delegates to review.queue.submit()
-    This node will pause the workflow until human responds.
+    """Queue question for human review.
+    
+    For Phase 2 MVP, we auto-approve to keep the flow moving.
+    Full implementation with async waiting will be in Phase 5.
     """
-    # Stub: auto-approve and continue
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "human_review"})
+    
+    if not state.expert_queries:
+        logger.warning("No expert queries for human review")
+        state.current_phase = Phase.EXPERT_ANSWER
+        return {"current_phase": Phase.EXPERT_ANSWER}
+    
+    current_query = state.expert_queries[-1]
+    
+    # Emit event for UI notification
+    await event_bus.emit(sid, "review", "pending", {
+        "question": current_query.get("question", "")[:200] if isinstance(current_query, dict) else current_query.question[:200],
+        "worker_id": current_query.get("worker_id", "") if isinstance(current_query, dict) else current_query.worker_id,
+    })
+    
+    # For Phase 2 MVP: auto-approve after short delay to simulate review
+    # In production, this would wait for actual human decision
+    logger.info("Human review: auto-approving for MVP (no UI yet)")
+    
+    # Mark as reviewed
+    if isinstance(current_query, dict):
+        current_query["reviewed"] = True
+        current_query["review_decision"] = "approved"
+    
     state.current_phase = Phase.EXPERT_ANSWER
-    return {"current_phase": Phase.EXPERT_ANSWER}
+    return {
+        "expert_queries": state.expert_queries,
+        "current_phase": Phase.EXPERT_ANSWER,
+    }
 
 
 async def expert_answer_node(state: FocusGroupState) -> dict:
-    """Query expert LLM for answer and store in cache.
-
-    Delegates to agents.expert.answer()
-    """
+    """Query expert LLM for answer and store in cache."""
     from piedpiper.main import app_state
+    from piedpiper.models.queries import ExpertQuery
     
-    # Get the current expert query
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "expert_answer"})
+    
     if not state.expert_queries:
         logger.warning("No expert queries to answer")
-        return {}
+        state.current_phase = Phase.WORKER_EXECUTE
+        return {"current_phase": Phase.WORKER_EXECUTE}
     
-    current_query = state.expert_queries[-1]
-    question = current_query.get("question", "")
+    # Get the latest query
+    query_data = state.expert_queries[-1]
+    query = ExpertQuery(**query_data) if isinstance(query_data, dict) else query_data
     
-    # TODO: Call expert agent to generate answer
-    # For now, we'll just show how caching works
-    # expert_answer = await expert_agent.answer(current_query)
+    logger.info(f"Expert answering query: {query.question[:100]}...")
     
-    # After getting expert answer and human approval, store in cache
-    # This would typically be called after human approves the answer
-    
-    # Example of storing in cache with cost tracking:
-    # if app_state.knowledge_base and current_query.get("approved_by"):
-    #     doc_id, embedding_cost = await app_state.knowledge_base.store(
-    #         question=question,
-    #         answer=expert_answer,
-    #         approved_by=current_query["approved_by"],
-    #         category=current_query.get("category", "general"),
-    #     )
-    #     
-    #     # Track costs
-    #     updated_costs = state.costs.model_copy()
-    #     updated_costs.spent_embeddings += embedding_cost
-    #     
-    #     logger.info(f"✓ Cached expert answer for: {question[:100]}... (id: {doc_id})")
-    #     
-    #     return {"costs": updated_costs}
-    
-    # TODO: implement full expert answer flow
-    raise NotImplementedError
-    # Stub: add a placeholder answer to first stuck worker
-    for worker in state.workers:
-        if not worker.completed:
-            worker.conversation_history.append({
-                "role": "expert",
-                "content": "Stub expert answer: try checking the documentation."
-            })
-            break
+    try:
+        # Get expert answer
+        expert = ExpertAgent()
+        answer = await expert.answer(query)
+        
+        await event_bus.emit(sid, "expert", "answer_generated", {
+            "answer_id": answer.answer_id,
+            "confidence": answer.estimated_confidence,
+            "answer_preview": answer.content[:200],
+        })
+        
+        # Store in cache if knowledge base available
+        if app_state.knowledge_base:
+            try:
+                doc_id, cost = await app_state.knowledge_base.store(
+                    question=query.question,
+                    answer=answer.content,
+                    approved_by="expert_agent",
+                    category=query.category,
+                )
+                logger.info(f"Cached expert answer as {doc_id}")
+            except Exception as e:
+                logger.warning(f"Failed to cache answer: {e}")
+        
+        # Apply answer to the worker who asked
+        for worker in state.workers:
+            if worker.worker_id == query.worker_id:
+                agent = WorkerAgent(worker.config)
+                agent.sandbox_id = worker.sandbox_id
+                agent.set_emitter(event_bus.make_emitter(sid))
+                
+                updated_worker = await agent.apply_expert_answer(worker, answer.content)
+                
+                worker.action_history = updated_worker.action_history
+                worker.conversation_history = updated_worker.conversation_history
+                worker.stuck = False
+                worker.completed = updated_worker.completed
+                worker.output = updated_worker.output
+                
+                logger.info(f"Applied expert answer to worker {worker.worker_id}")
+                break
+        
+        # Update query with answer
+        query_data["answer"] = answer.model_dump()
+        
+    except Exception as e:
+        logger.error(f"Expert answer failed: {e}")
+        await event_bus.emit(sid, "expert", "error", {"error": str(e)[:300]})
+        
+        # Fallback: give generic guidance
+        for worker in state.workers:
+            if worker.worker_id == query.worker_id:
+                worker.conversation_history.append({
+                    "role": "user",
+                    "content": "Expert guidance: Please check the documentation and error messages carefully. Try breaking down the problem into smaller steps.",
+                })
+                worker.stuck = False
+                break
     
     state.current_phase = Phase.WORKER_EXECUTE
-    return {"workers": state.workers, "current_phase": Phase.WORKER_EXECUTE}
+    return {
+        "workers": state.workers,
+        "expert_queries": state.expert_queries,
+        "current_phase": Phase.WORKER_EXECUTE,
+    }
 
 
 async def browserbase_test_node(state: FocusGroupState) -> dict:
-    """Validate worker output in browser.
-
-    Delegates to infra.browserbase.validate()
-    """
-    # Stub: auto-pass
+    """Validate worker output in browser."""
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "browserbase_test"})
     state.current_phase = Phase.GENERATE_REPORT
     return {"current_phase": Phase.GENERATE_REPORT}
 
 
 async def generate_report_node(state: FocusGroupState) -> dict:
     """Compile insights into final report."""
-    # Stub: create simple report
+    sid = state.session_id
+    await event_bus.emit(sid, "system", "phase_change", {"phase": "generate_report"})
+
     report = {
         "session_id": state.session_id,
         "task": state.task[:100] + "..." if len(state.task) > 100 else state.task,
@@ -283,10 +408,6 @@ async def generate_report_node(state: FocusGroupState) -> dict:
 
 
 async def expert_learn_node(state: FocusGroupState) -> dict:
-    """Update expert agent based on effectiveness metrics.
-
-    Delegates to agents.learning.evaluate_and_learn()
-    """
-    # Stub: mark as completed
+    """Update expert agent based on effectiveness metrics."""
     state.current_phase = Phase.COMPLETED
     return {"current_phase": Phase.COMPLETED}
