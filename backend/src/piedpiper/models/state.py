@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from piedpiper.models.validation import ValidationResult
+
 
 class WorkerConfig(BaseModel):
     id: str
@@ -107,5 +109,6 @@ class FocusGroupState(BaseModel):
     costs: CostTracker = Field(default_factory=CostTracker)
     shared_memory: SharedMemory = Field(default_factory=SharedMemory)
     expert_learning: ExpertLearningLog = Field(default_factory=ExpertLearningLog)
+    validations: list[ValidationResult] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -373,17 +373,72 @@ async def expert_answer_node(state: FocusGroupState) -> dict:
     state.current_phase = Phase.WORKER_EXECUTE
     return {
         "workers": state.workers,
-        "expert_queries": state.expert_queries,
-        "current_phase": Phase.WORKER_EXECUTE,
-    }
-
 
 async def browserbase_test_node(state: FocusGroupState) -> dict:
-    """Validate worker output in browser."""
+    """Validate worker output in browser.
+    
+    Runs Browserbase validation for each completed worker.
+    Validates page loads, console errors, API endpoints, and user flows.
+    """
+    from piedpiper.infra.browserbase import BrowserbaseValidator
+    from piedpiper.models.state import Phase
+    
     sid = state.session_id
     await event_bus.emit(sid, "system", "phase_change", {"phase": "browserbase_test"})
+    
+    if not settings.browserbase_api_key:
+        logger.warning("Browserbase API key not configured, skipping validation")
+        state.current_phase = Phase.GENERATE_REPORT
+        return {"current_phase": Phase.GENERATE_REPORT, "validations": []}
+    
+    validator = BrowserbaseValidator()
+    validations = []
+    all_passed = True
+    
+    for worker in state.workers:
+        if not worker.completed or not worker.output:
+            logger.info(f"Skipping validation for worker {worker.worker_id} - not completed")
+            continue
+        
+        logger.info(f"Validating worker {worker.worker_id} output...")
+        await event_bus.emit(sid, worker.worker_id, "validation_started", {})
+        
+        try:
+            result = await validator.validate_worker_output(
+                worker_id=worker.worker_id,
+                output=worker.output,
+            )
+            validations.append(result)
+            
+            # Emit results
+            await event_bus.emit(sid, worker.worker_id, "validation_complete", {
+                "passed": result.passed,
+                "score": result.score,
+                "check_count": len(result.checks),
+                "passed_checks": len([c for c in result.checks if c.passed]),
+            })
+            
+            if not result.passed:
+                all_passed = False
+                logger.warning(
+                    f"Worker {worker.worker_id} validation failed: "
+                    f"score={result.score:.2f}, errors={result.errors[:2]}"
+                )
+            else:
+                logger.info(f"Worker {worker.worker_id} validation passed: score={result.score:.2f}")
+                
+        except Exception as e:
+            logger.error(f"Validation error for worker {worker.worker_id}: {e}")
+            all_passed = False
+            await event_bus.emit(sid, worker.worker_id, "validation_error", {
+                "error": str(e)[:200],
+            })
+    
     state.current_phase = Phase.GENERATE_REPORT
-    return {"current_phase": Phase.GENERATE_REPORT}
+    return {
+        "current_phase": Phase.GENERATE_REPORT,
+        "validations": validations,
+    }
 
 
 async def generate_report_node(state: FocusGroupState) -> dict:
