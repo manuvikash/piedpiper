@@ -26,9 +26,9 @@ class WorkerConfig(BaseModel):
 
 
 DEFAULT_WORKERS = [
-    WorkerConfig(id="junior", model="gpt-4o-mini", expertise=WorkerExpertise.BEGINNER),
-    WorkerConfig(id="intermediate", model="gpt-4o", expertise=WorkerExpertise.MID_LEVEL),
-    WorkerConfig(id="senior", model="claude-3-5-sonnet-20241022", expertise=WorkerExpertise.ADVANCED),
+    WorkerConfig(id="junior", model="microsoft/Phi-4-mini-instruct", expertise=WorkerExpertise.BEGINNER),
+    WorkerConfig(id="intermediate", model="meta-llama/Llama-3.1-8B-Instruct", expertise=WorkerExpertise.MID_LEVEL),
+    WorkerConfig(id="senior", model="Qwen/Qwen2.5-14B-Instruct", expertise=WorkerExpertise.ADVANCED),
 ]
 
 

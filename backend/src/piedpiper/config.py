@@ -2,7 +2,12 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # LLM Providers
+    # LLM Providers - W&B Inference (OpenAI-compatible API)
+    wandb_api_key: str = ""
+    wandb_base_url: str = "https://api.inference.wandb.ai/v1"
+    wandb_project: str = "focus-group-simulation"
+
+    # Legacy API keys (for fallback)
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
@@ -22,10 +27,6 @@ class Settings(BaseSettings):
     # Browserbase
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
-
-    # W&B Weave
-    wandb_api_key: str = ""
-    weave_project_name: str = "focus-group-simulation"
 
     # Budget
     total_budget_usd: float = 50.00
