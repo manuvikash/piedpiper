@@ -7,8 +7,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # Redis Cloud
-    # Default uses your Redis Cloud instance (override in .env if needed)
-    redis_url: str = "redis://default:gmdyd2O0VRi6bTfwPkiLB8laaEFAHOEb@redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166"
+    # Set REDIS_URL in .env file (see .env.example)
+    redis_url: str = "redis://localhost:6379"
 
     # PostgreSQL
     database_url: str = "postgresql+asyncpg://piedpiper:piedpiper@localhost:5432/piedpiper"

@@ -30,11 +30,13 @@ async def test_redis_integration():
         logger.error("OPENAI_API_KEY not set - cannot test embeddings")
         return False
     
-    # Use Redis Cloud URL from environment or default
-    redis_url = os.getenv(
-        "REDIS_URL",
-        "redis://redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166"
-    )
+    # Get Redis URL from environment
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        logger.error("REDIS_URL environment variable not set!")
+        logger.error("Please set it in your .env file or export it:")
+        logger.error("export REDIS_URL='redis://default:PASSWORD@HOST:PORT'")
+        return False
     
     logger.info("=" * 60)
     logger.info("Testing Redis Integration (Redis Cloud)")

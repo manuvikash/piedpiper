@@ -1,15 +1,24 @@
 """Quick Redis Cloud connection test."""
 
 import asyncio
+import os
 from redis.asyncio import Redis
 
 async def test_connection():
     """Test Redis Cloud connection."""
     
-    redis_url = "redis://default:gmdyd2O0VRi6bTfwPkiLB8laaEFAHOEb@redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166"
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        print("❌ REDIS_URL environment variable not set!")
+        print("Please set it in your .env file or export it:")
+        print("export REDIS_URL='redis://default:PASSWORD@HOST:PORT'")
+        return False
+    
+    # Hide password in output
+    display_url = redis_url.split('@')[-1] if '@' in redis_url else redis_url
     
     print("Testing Redis Cloud connection...")
-    print(f"Host: redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166")
+    print(f"Host: {display_url}")
     print()
     
     try:

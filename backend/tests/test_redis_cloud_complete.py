@@ -10,6 +10,7 @@ This test verifies:
 import asyncio
 import json
 import logging
+import os
 import sys
 
 from redis.asyncio import Redis
@@ -22,12 +23,20 @@ logger = logging.getLogger(__name__)
 async def test_redis_cloud_full():
     """Test Redis Cloud with all features except embeddings."""
     
-    redis_url = "redis://default:gmdyd2O0VRi6bTfwPkiLB8laaEFAHOEb@redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166"
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        logger.error("REDIS_URL environment variable not set!")
+        logger.error("Please set it in your .env file or export it:")
+        logger.error("export REDIS_URL='redis://default:PASSWORD@HOST:PORT'")
+        return False
+    
+    # Hide password in output
+    display_url = redis_url.split('@')[-1] if '@' in redis_url else redis_url
     
     logger.info("=" * 70)
     logger.info("Testing Redis Cloud Integration (Full Test)")
     logger.info("=" * 70)
-    logger.info(f"Redis: redis-15166.c258.us-east-1-4.ec2.cloud.redislabs.com:15166\n")
+    logger.info(f"Redis: {display_url}\n")
     
     try:
         # 1. Connect to Redis Cloud
